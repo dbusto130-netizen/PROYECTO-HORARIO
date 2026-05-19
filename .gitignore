@@ -1,0 +1,24 @@
+# Node
+node_modules/
+
+# Variables de entorno
+.env
+backend/.env
+frontend/.env
+
+# Logs
+npm-debug.log*
+
+# Build React
+frontend/build/
+
+# SQLite
+*.db
+*.sqlite
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
