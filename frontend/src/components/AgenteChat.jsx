@@ -5,13 +5,15 @@ import { useState, useRef, useEffect } from "react";
 const API = "http://localhost:3001/api";
 const SESION_ID = `sesion_${Date.now()}`;
 
-const QUICK_ACTIONS = [
-  { label: "⚡ Generar horario",       prompt: "Genera el horario optimizado para el semestre 2025-2" },
-  { label: "⚠ Ver conflictos",         prompt: "Detecta todos los conflictos en el horario actual" },
-  { label: "✓ Validar prerrequisitos", prompt: "Valida que los prerrequisitos estén correctos" },
-  { label: "↓ Exportar CSV",           prompt: "Exporta el horario en formato CSV" },
-  { label: "✉ Notificar directores",   prompt: "Genera el reporte para notificar a los directores" },
-];
+function getQuickActions(semestre) {
+  return [
+    { label: "Generar horario",          prompt: `Genera el horario optimizado para el semestre ${semestre}` },
+    { label: "⚠ Ver conflictos",         prompt: "Detecta todos los conflictos en el horario actual" },
+    { label: "✓ Validar prerrequisitos", prompt: "Valida que los prerrequisitos estén correctos" },
+    { label: "↓ Exportar CSV",           prompt: "Exporta el horario en formato CSV" },
+    { label: "✉ Notificar directores",   prompt: "Genera el reporte para notificar a los directores" },
+  ];
+}
 
 function DotsLoader() {
   return (
@@ -32,7 +34,7 @@ function DotsLoader() {
   );
 }
 
-export default function AgenteChat({ onHorarioGenerado, semestre = "2025-2" }) {
+export default function AgenteChat({ onHorarioGenerado, semestre = '2025-2' }) {
   const [mensajes, setMensajes] = useState([
     {
       rol: "agente",
@@ -43,6 +45,8 @@ export default function AgenteChat({ onHorarioGenerado, semestre = "2025-2" }) {
   const [cargando, setCargando] = useState(false);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  const QUICK_ACTIONS = getQuickActions(semestre);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
