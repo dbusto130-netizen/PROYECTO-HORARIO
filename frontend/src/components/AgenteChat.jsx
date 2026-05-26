@@ -63,18 +63,20 @@ export default function AgenteChat({ onHorarioGenerado, semestre = '2025-2' }) {
 
     try {
       const res = await fetch(`${API}/agente/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mensaje: msg, sesion_id: SESION_ID }),
       });
       const data = await res.json();
-      setMensajes((prev) => [
-        ...prev,
-        { rol: "agente", texto: data.respuesta || data.error },
-      ]);
-      if (msg.toLowerCase().includes("generar") && onHorarioGenerado) {
-        onHorarioGenerado();
-      }
+
+      setMensajes(prev => [...prev, {
+        rol: 'agente',
+        texto: data.respuesta || data.error,
+      }]);
+
+      // Siempre recarga después de cualquier respuesta del agente
+      if (onHorarioGenerado) await onHorarioGenerado();
+
     } catch {
       setMensajes((prev) => [
         ...prev,

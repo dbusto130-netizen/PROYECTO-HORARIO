@@ -1,8 +1,7 @@
-require('dotenv').config();
+require('dotenv').config(); // ← debe ser la PRIMERA línea
 const express = require('express');
 const cors = require('cors');
 const db = require('./database');
-const { Parser } = require('json2csv');
 
 const app = express();
 const agenteRouter = require('./routes/agente');
@@ -226,24 +225,46 @@ function generarHorario(docentes, materias, aulas, grupos) {
 // =========================
 
 function detectarConflictos(horario) {
-  let conflictos = [];
+  const conflictos = [];
 
   for (let i = 0; i < horario.length; i++) {
     for (let j = i + 1; j < horario.length; j++) {
-      let a = horario[i];
-      let b = horario[j];
+      const a = horario[i];
+      const b = horario[j];
 
-      if (a.docente === b.docente && a.hora === b.hora) {
+      // ✅ Ahora compara día Y hora
+      if (a.dia !== b.dia || a.hora !== b.hora) continue;
+
+      if (a.docente === b.docente) {
         conflictos.push({
-          tipo: 'Conflicto Docente',
-          detalle: `${a.docente} tiene dos clases a las ${a.hora}`
+          tipo: 'docente',
+          nombre: a.docente,
+          slot: `${a.dia}|${a.hora}`,
+          materia_a: a.materia,
+          materia_b: b.materia,
+          severidad: 'media',
         });
       }
 
-      if (a.aula === b.aula && a.hora === b.hora) {
+      if (a.aula === b.aula) {
         conflictos.push({
-          tipo: 'Conflicto Aula',
-          detalle: `${a.aula} está ocupada a las ${a.hora}`
+          tipo: 'aula',
+          nombre: a.aula,
+          slot: `${a.dia}|${a.hora}`,
+          materia_a: a.materia,
+          materia_b: b.materia,
+          severidad: 'media',
+        });
+      }
+
+      if (a.grupo === b.grupo) {
+        conflictos.push({
+          tipo: 'grupo',
+          nombre: a.grupo,
+          slot: `${a.dia}|${a.hora}`,
+          materia_a: a.materia,
+          materia_b: b.materia,
+          severidad: 'alta',
         });
       }
     }
@@ -251,6 +272,54 @@ function detectarConflictos(horario) {
 
   return conflictos;
 }
+// =========================
+// API enviar horario por correo
+// =========================
+const { enviarHorarioCSV } = require('./mailer');
+const { Parser } = require('json2csv');
+
+app.post('/enviar-horario', async (req, res) => {
+  req.setTimeout(30000)
+  const { semestre = '2025-2' } = req.body
+
+  try {
+    const horario = await new Promise((resolve, reject) =>
+      db.all(`
+        SELECT m.nombre as materia, d.nombre as docente,
+               a.nombre as aula,   g.nombre as grupo,
+               g.programa, h.dia,  h.hora
+        FROM horarios h
+        JOIN docentes d ON h.docente_id = d.id
+        JOIN aulas    a ON h.aula_id    = a.id
+        JOIN grupos   g ON h.grupo_id   = g.id
+        JOIN materias m ON h.materia_id = m.id
+        WHERE h.semestre = ?
+        ORDER BY h.dia, h.hora
+      `, [semestre], (err, rows) => err ? reject(err) : resolve(rows))
+    )
+
+    if (!horario.length) {
+      return res.status(400).json({ error: 'No hay horario generado. Genera uno primero.' })
+    }
+
+    const parser = new Parser({
+      fields: ['materia', 'docente', 'aula', 'grupo', 'programa', 'dia', 'hora']
+    })
+    const csv = parser.parse(horario)
+
+    await enviarHorarioCSV(
+      Buffer.from(csv, 'utf-8'),
+      process.env.MAIL_DESTINO,
+      semestre
+    )
+
+    res.json({ mensaje: `✓ Horario enviado a ${process.env.MAIL_DESTINO}` })
+
+  } catch (err) {
+    console.error('[Correo]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // =========================
 // API GENERAR HORARIO
@@ -315,6 +384,27 @@ app.get('/conflictos', async (req, res) => {
 
   }
 
+});
+
+// Nuevo endpoint — lee el horario que el AGENTE guardó
+app.get('/horario-agente', (req, res) => {
+  db.all(`
+    SELECT m.nombre as materia, d.nombre as docente,
+           a.nombre as aula,   g.nombre as grupo,
+           g.programa, h.dia,  h.hora
+    FROM horarios h
+    JOIN docentes d ON h.docente_id = d.id
+    JOIN aulas    a ON h.aula_id    = a.id
+    JOIN grupos   g ON h.grupo_id   = g.id
+    JOIN materias m ON h.materia_id = m.id
+    ORDER BY h.dia, h.hora
+  `, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Reutiliza tu función detectarConflictos existente
+    const conflictos = detectarConflictos(rows);
+    res.json({ horario: rows, conflictos });
+  });
 });
 
 // =========================

@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import AgenteChat from './components/AgenteChat'
 
 const API = 'http://localhost:3001'
-
 const DIAS_ORDEN = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']
 
 function Badge({ tipo }) {
@@ -54,7 +53,7 @@ function StatCard({ label, value, sub, accent }) {
 }
 
 function TablaHorario({ horario }) {
-  const [vista, setVista] = useState('tabla') // 'tabla' | 'grid'
+  const [vista, setVista] = useState('tabla')
   const [filtro, setFiltro] = useState('')
 
   const filtrado = horario.filter(item =>
@@ -65,7 +64,6 @@ function TablaHorario({ horario }) {
   )
 
   if (vista === 'grid') {
-    // Vista grilla por día
     const porDia = DIAS_ORDEN.reduce((acc, dia) => {
       acc[dia] = filtrado.filter(i => i.dia === dia).sort((a, b) => a.hora?.localeCompare(b.hora))
       return acc
@@ -247,15 +245,46 @@ function TarjetaConflicto({ c }) {
   )
 }
 
+// ─── Toast global ───────────────────────────────────────────
+function Toast({ mensaje }) {
+  if (!mensaje) return null
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24, zIndex: 999,
+      background: mensaje.ok ? '#052e16' : '#1a0808',
+      border: `1px solid ${mensaje.ok ? '#166534' : '#7f1d1d'}`,
+      color: mensaje.ok ? '#4ade80' : '#f87171',
+      padding: '12px 20px', borderRadius: 8,
+      fontSize: 13, fontWeight: 600,
+      boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', gap: 8,
+      animation: 'slideIn 0.2s ease',
+    }}>
+      <span>{mensaje.ok ? '✓' : '✗'}</span>
+      {mensaje.texto}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────
 function App() {
   const [datos, setDatos] = useState({ horario: [], conflictos: [] })
   const [cargando, setCargando] = useState(true)
   const [semestre, setSemestre] = useState('2025-2')
-  const [panelActivo, setPanelActivo] = useState('horario') // 'horario' | 'conflictos'
+  const [panelActivo, setPanelActivo] = useState('horario')
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null)
 
+  // ── Estado del envío de correo ──
+  const [enviando, setEnviando] = useState(false)
+  const [toast, setToast] = useState(null)
+
+  const mostrarToast = (ok, texto) => {
+    setToast({ ok, texto })
+    setTimeout(() => setToast(null), 4000)
+  }
+
   const cargarDatos = useCallback(() => {
-    return fetch(`${API}/conflictos`)
+    return fetch(`${API}/horario-agente`)
       .then(res => res.json())
       .then(data => {
         setDatos({
@@ -273,20 +302,44 @@ function App() {
 
   useEffect(() => { cargarDatos() }, [cargarDatos])
 
+  // ── Enviar correo ──
+  async function enviarCorreo() {
+    if (datos.horario.length === 0) {
+      mostrarToast(false, 'Genera un horario primero antes de enviar.')
+      return
+    }
+    setEnviando(true)
+    try {
+      const res = await fetch(`${API}/enviar-horario`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ semestre }),
+      })
+      const data = await res.json()
+      mostrarToast(res.ok, data.mensaje || data.error)
+    } catch {
+      mostrarToast(false, 'Error de conexión al enviar el correo.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   const conflictosAltos = datos.conflictos.filter(c => c.severidad === 'alta').length
   const conflictosTotales = datos.conflictos.length
 
   return (
     <>
       <style>{`
-        :root {
-          --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-        }
+        :root { --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #0a0e17; }
         @keyframes pulseRed { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+        @keyframes slideIn  { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
         button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+        .btn-correo:hover:not(:disabled) { background: #064e3b !important; border-color: #059669 !important; }
       `}</style>
+
+      <Toast mensaje={toast} />
 
       <div style={{
         minHeight: '100vh',
@@ -295,7 +348,7 @@ function App() {
         fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
       }}>
 
-        {/* Header */}
+        {/* ── Header ── */}
         <header style={{
           borderBottom: '1px solid #1e293b',
           background: '#0d1117',
@@ -320,12 +373,14 @@ function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {ultimaActualizacion && (
               <span style={{ fontSize: 11, color: '#334155' }}>
                 Actualizado {ultimaActualizacion.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
+
+            {/* Selector semestre */}
             <div style={{
               background: '#0f172a', border: '1px solid #1e293b',
               borderRadius: 6, padding: '4px 10px',
@@ -346,6 +401,8 @@ function App() {
                 <option value="2026-1">2026-1</option>
               </select>
             </div>
+
+            {/* Exportar CSV */}
             <a
               href={`${API}/exportar-horario`}
               target="_blank"
@@ -357,12 +414,34 @@ function App() {
                 fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
               }}
             >
-              ↓ Exportar CSV
+              ↓ CSV
             </a>
+
+            {/* ── Botón enviar correo ── */}
+            <button
+              className="btn-correo"
+              onClick={enviarCorreo}
+              disabled={enviando}
+              style={{
+                background: enviando ? '#1e293b' : '#052e16',
+                border: `1px solid ${enviando ? '#1e293b' : '#166534'}`,
+                color: enviando ? '#475569' : '#4ade80',
+                padding: '6px 14px', borderRadius: 6,
+                fontSize: 12, fontWeight: 700,
+                cursor: enviando ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {enviando
+                ? <><span style={{ fontSize: 11 }}>⏳</span> Enviando...</>
+                : <><span>✉</span> Enviar a director</>
+              }
+            </button>
           </div>
         </header>
 
-        {/* Layout principal */}
+        {/* ── Layout principal ── */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '380px 1fr',
@@ -393,10 +472,7 @@ function App() {
               </span>
             </div>
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <AgenteChat
-                semestre={semestre}
-                onHorarioGenerado={cargarDatos}
-              />
+              <AgenteChat semestre={semestre} onHorarioGenerado={cargarDatos} />
             </div>
           </aside>
 
@@ -434,7 +510,7 @@ function App() {
             {/* Pestañas */}
             <div style={{ display: 'flex', borderBottom: '1px solid #1e293b', marginBottom: 20, gap: 2 }}>
               {[
-                ['horario', `Horario (${datos.horario.length})`],
+                ['horario',    `Horario (${datos.horario.length})`],
                 ['conflictos', `Conflictos${conflictosTotales > 0 ? ` (${conflictosTotales})` : ''}`],
               ].map(([key, label]) => (
                 <button
@@ -464,7 +540,7 @@ function App() {
               ))}
             </div>
 
-            {/* Contenido según pestaña */}
+            {/* Contenido */}
             {cargando ? (
               <div style={{ padding: '60px 0', textAlign: 'center', color: '#334155' }}>
                 <div style={{ fontSize: 13 }}>Cargando datos...</div>
